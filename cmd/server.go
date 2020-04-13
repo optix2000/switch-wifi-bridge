@@ -3,6 +3,7 @@ package cmd
 import "net"
 import "io"
 
+import "golang.org/x/sync/syncmap"
 import "github.com/vmihailenco/msgpack/v4"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
@@ -12,7 +13,7 @@ type Client struct {
 	Conn net.Conn
 }
 
-var clients = make(map[*Client]bool)
+var clients = syncmap.Map{}
 
 var serverCmd = &cobra.Command{
 	Use:   "server [bindaddr:port]",
@@ -53,9 +54,9 @@ func server(listenAddr string) {
 func handleClient(conn net.Conn) {
 	log.Info("New connection from ", conn.RemoteAddr())
 	self := &Client{Conn: conn}
-	clients[self] = true
+	clients.Store(self, true)
 	defer conn.Close()
-	defer delete(clients, self)
+	defer clients.Delete(self)
 
 	decoder := protocol.StreamDecoder(conn)
 
@@ -69,22 +70,26 @@ func handleClient(conn net.Conn) {
 		} else { // Protocol unmarshal success
 			log.Info(message)
 			// Broadcast to all clients
-			for client := range clients {
-				// Don't send back your own packets
-				if client == self {
-					continue
-				}
-				// Remarshal unmarshalled data prevent garbage from being sent downstream
-				mpack, err := msgpack.Marshal(message)
-				if err != nil {
-					log.Error(err)
-				} else {
-					// TODO: Put write side in separate goroutine
-					// Explicitly unbuffered to minimize latency
-					// We can make some assumptions on packet size due to 802.11 limits
-					client.Conn.Write(mpack)
-				}
-			}
+			clients.Range(
+				func(key, val interface{}) bool {
+					client := key.(*Client)
+					// Don't send back your own packets
+					if client == self {
+						return true
+					}
+					// Remarshal unmarshalled data prevent garbage from being sent downstream
+					mpack, err := msgpack.Marshal(message)
+					if err != nil {
+						log.Error(err)
+					} else {
+						// TODO: Put write side in separate goroutine
+						// Explicitly unbuffered to minimize latency
+						// We can make some assumptions on packet size due to 802.11 limits
+						client.Conn.Write(mpack)
+					}
+					return true
+				},
+			)
 		}
 	}
 	log.Info("Connection lost from", conn.RemoteAddr())
