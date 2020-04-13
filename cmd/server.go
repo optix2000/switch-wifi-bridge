@@ -68,7 +68,7 @@ func handleClient(conn net.Conn) {
 			}
 			log.Error(err)
 		} else { // Protocol unmarshal success
-			log.Info(message)
+			log.Debug(message)
 			// Broadcast to all clients
 			clients.Range(
 				func(key, val interface{}) bool {

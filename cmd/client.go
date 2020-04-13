@@ -37,6 +37,7 @@ func init() {
 	clientCmd.MarkFlagRequired("interface")
 }
 
+// TODO: Add channel hopping
 // TODO: Add reconnection
 // TODO: Anonymize MAC
 func client(serverAddr string) {
@@ -50,7 +51,7 @@ func client(serverAddr string) {
 	}
 
 	if noMon {
-		log.Warn("Skipping monitor mode")
+		log.Info("Skipping monitor mode")
 	} else {
 		err = inactivePcap.SetRFMon(true)
 		if err != nil {
@@ -59,7 +60,7 @@ func client(serverAddr string) {
 	}
 
 	if noPromisc {
-		log.Warn("Skipping promsicuous mode")
+		log.Info("Skipping promsicuous mode")
 	} else {
 		inactivePcap.SetPromisc(true)
 		if err != nil {
@@ -119,7 +120,7 @@ func client(serverAddr string) {
 		} else {
 			// Forward packets if they match whitelist
 			dot11 := layer.(*layers.Dot11)
-			if switchMacs[dot11.Address1.String()] {
+			if switchMacs[dot11.Address2.String()] {
 				// Skip detection if we forward a packet
 				forwardPacket(send, packet)
 				continue
@@ -158,8 +159,10 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 }
 
 func registerSwitch(dot11 *layers.Dot11) {
-	log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
-	switchMacs[dot11.Address2.String()] = true
+	if !switchMacs[dot11.Address2.String()] {
+		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
+		switchMacs[dot11.Address2.String()] = true
+	}
 }
 
 func handlePackets(conn net.Conn, handle *pcap.Handle) {
