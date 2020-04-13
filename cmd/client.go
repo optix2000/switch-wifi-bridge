@@ -92,7 +92,6 @@ func client(serverAddr string) {
 	packetS.DecodeOptions.Lazy = true
 	// TODO: Move this to a goroutine?
 	for packet := range packetS.Packets() {
-		log.Debug("Packet: ", packet)
 		// Sanity check
 		layer := packet.Layer(layers.LayerTypeRadioTap)
 		if layer == nil {
