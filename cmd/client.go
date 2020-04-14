@@ -84,12 +84,8 @@ func client(serverAddr string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Start injection goroutine
-	go handlePackets(conn, handle)
-	// Extra goroutine so network doesn't block main thread
-	send := make(chan []byte, 1024)
-	go packetForwarder(conn, send)
-	defer close(send)
+	// Start network goroutines
+	send := handleConnection(conn, handle)
 
 	// Start channel hopping
 	stopHop := make(chan struct{})
@@ -169,6 +165,43 @@ func client(serverAddr string) {
 	}
 }
 
+// Network goroutine handling connections
+func handleConnection(conn net.Conn, handle *pcap.Handle) chan<- []byte {
+	channel := make(chan []byte, 1024)
+
+	go func(conn net.Conn, handle *pcap.Handle) {
+		log.Info("Connected to ", conn.RemoteAddr())
+		defer conn.Close()
+
+		// Write side
+		go func(conn net.Conn, messages <-chan []byte) {
+			for message := range messages {
+				conn.Write(message)
+			}
+		}(conn, channel)
+
+		defer close(channel)
+		decoder := protocol.StreamDecoder(conn)
+
+		for {
+			message, err := decoder.Decode()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Error("Error deserializing msgpack: ", err)
+			} else {
+				log.Debug(message)
+				handle.WritePacketData(message.Packet)
+			}
+		}
+		// Fatal since we don't try to reconnect
+		log.Fatal("Connection to server lost.")
+	}(conn, handle)
+
+	return channel
+}
+
 func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 	mpack, err := protocol.MarshalPacket(packet.Data())
 	if err != nil {
@@ -185,33 +218,6 @@ func registerSwitch(dot11 *layers.Dot11) bool {
 		return true
 	}
 	return false
-}
-
-func handlePackets(conn net.Conn, handle *pcap.Handle) {
-	log.Info("Connected to ", conn.RemoteAddr())
-	defer conn.Close()
-	decoder := protocol.StreamDecoder(conn)
-
-	for {
-		message, err := decoder.Decode()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Error("Error deserializing msgpack: ", err)
-		} else {
-			log.Debug(message)
-			handle.WritePacketData(message.Packet)
-		}
-	}
-	// Fatal since we don't try to reconnect
-	log.Fatal("Connection to server lost.")
-}
-
-func packetForwarder(conn net.Conn, messages <-chan []byte) {
-	for message := range messages {
-		conn.Write(message)
-	}
 }
 
 // Hack for an alternative monitor mode. Needed for some drivers as they can't set monitor mode while the interface is up.
