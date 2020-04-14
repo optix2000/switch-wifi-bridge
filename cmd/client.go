@@ -255,7 +255,8 @@ func channelHopper(abort <-chan struct{}, iface string) {
 		}
 		changeChannel(iface, i)
 		i++
-		if i > 13 {
+		// TODO: Detect regulatory domain and remove hardcode
+		if i > 11 {
 			i = 1
 		}
 		time.Sleep(time.Millisecond * 100)
