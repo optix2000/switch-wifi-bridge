@@ -11,6 +11,7 @@ import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 // Client keeps track of different clients
 type Client struct {
 	Conn net.Conn
+	Send chan []byte
 }
 
 var clients = syncmap.Map{}
@@ -53,8 +54,24 @@ func server(listenAddr string) {
 // Goroutine for handling each client in parallel
 func handleClient(conn net.Conn) {
 	log.Info("New connection from ", conn.RemoteAddr())
-	self := &Client{Conn: conn}
+	self := &Client{
+		Conn: conn,
+		Send: make(chan []byte, 1024),
+	}
+
+	// async writer
+	go func(conn net.Conn, send <-chan []byte) {
+		for message := range send {
+			// Explicitly unbuffered to minimize latency
+			// We can make some assumptions on packet size due to 802.11 limits
+			conn.Write(message)
+		}
+
+	}(conn, self.Send)
+
 	clients.Store(self, true)
+
+	defer close(self.Send)
 	defer conn.Close()
 	defer clients.Delete(self)
 
@@ -82,10 +99,7 @@ func handleClient(conn net.Conn) {
 					if err != nil {
 						log.Error(err)
 					} else {
-						// TODO: Put write side in separate goroutine
-						// Explicitly unbuffered to minimize latency
-						// We can make some assumptions on packet size due to 802.11 limits
-						client.Conn.Write(mpack)
+						client.Send <- mpack
 					}
 					return true
 				},
