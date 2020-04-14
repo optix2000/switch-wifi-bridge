@@ -4,6 +4,8 @@ import "bytes"
 import "io"
 import "net"
 import "os/exec"
+import "strconv"
+import "time"
 
 import "github.com/google/gopacket"
 import "github.com/google/gopacket/pcap"
@@ -26,18 +28,19 @@ var clientCmd = &cobra.Command{
 var iface string
 var noMon bool
 var noPromisc bool
+var noHop bool
 var altMon bool
 
 func init() {
 	clientCmd.Flags().StringVarP(&iface, "interface", "i", "", "Wireless interface to use for bridge. (Examples: wlan0, wlp5s0) (required)")
 	clientCmd.Flags().BoolVarP(&noMon, "no-monitor", "M", false, "Don't put interface in monitor mode. This should only be used if you're putting the interface in monitor mode yourself (ie using airmon-ng or iw)")
 	clientCmd.Flags().BoolVarP(&noPromisc, "no-promiscuous", "P", false, "Don't put interface in promiscuous mode. This should only be used if your driver is always in promiscuous mode but doesn't support setting it.")
+	clientCmd.Flags().BoolVarP(&noHop, "no-channel-hopping", "H", false, "Don't channel hop while discovering. This should only be used if you know the channel of your device or have an alternate channel switching method.")
 	clientCmd.Flags().BoolVarP(&altMon, "alt-monitor", "m", false, "Use alternative monitor mode using 'iw set monitor' instead of libpcap.")
 
 	clientCmd.MarkFlagRequired("interface")
 }
 
-// TODO: Add channel hopping
 // TODO: Add reconnection
 // TODO: Anonymize MAC
 func client(serverAddr string) {
@@ -60,7 +63,7 @@ func client(serverAddr string) {
 	}
 
 	if noPromisc {
-		log.Info("Skipping promsicuous mode")
+		log.Info("Skipping promiscuous mode")
 	} else {
 		inactivePcap.SetPromisc(true)
 		if err != nil {
@@ -88,6 +91,14 @@ func client(serverAddr string) {
 	go packetForwarder(conn, send)
 	defer close(send)
 
+	// Start channel hopping
+	stopHop := make(chan struct{})
+	if !noHop {
+		go channelHopper(stopHop, iface)
+	} else {
+		close(stopHop)
+	}
+
 	// Packet reading loop
 	packetS := gopacket.NewPacketSource(handle, handle.LinkType())
 	packetS.DecodeOptions.Lazy = true
@@ -102,6 +113,7 @@ func client(serverAddr string) {
 			log.Debug("Packet: ", packet)
 			continue
 		}
+		rtap := layer.(*layers.RadioTap)
 		layer = packet.Layer(layers.LayerTypeDot11)
 		if layer == nil {
 			if packet.Metadata().Truncated {
@@ -134,7 +146,15 @@ func client(serverAddr string) {
 					log.Debug("Found Vendor specific Action")
 					// Check for Nintendo OUI
 					if bytes.Compare(action.Contents[1:4], []byte("\x00\x22\xaa")) == 0 {
-						registerSwitch(dot11)
+						if registerSwitch(dot11) {
+							// Pin channel to where switch was detected
+							// NB: Assumptions made here that any other switches will join the first one
+							if !noHop {
+								stopHop <- struct{}{}
+								close(stopHop)
+								changeChannel(iface, freqToChan(rtap.ChannelFrequency))
+							}
+						}
 						forwardPacket(send, packet)
 						continue
 					}
@@ -158,11 +178,13 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 	send <- mpack
 }
 
-func registerSwitch(dot11 *layers.Dot11) {
+func registerSwitch(dot11 *layers.Dot11) bool {
 	if !switchMacs[dot11.Address2.String()] {
 		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
 		switchMacs[dot11.Address2.String()] = true
+		return true
 	}
+	return false
 }
 
 func handlePackets(conn net.Conn, handle *pcap.Handle) {
@@ -195,27 +217,52 @@ func packetForwarder(conn net.Conn, messages <-chan []byte) {
 // Hack for an alternative monitor mode. Needed for some drivers as they can't set monitor mode while the interface is up.
 func altMonitor(iface string) {
 	log.Info("Using alternative monitor mode")
-	cmd := exec.Command("ip", "link", "set", iface, "down")
+
 	log.Info("Bringing ", iface, " down")
+	execLog("ip", "link", "set", iface, "down")
+
+	log.Info("Setting monitor mode.")
+	execLog("iw", iface, "set", "monitor", "none")
+
+	log.Info("Bringing ", iface, " up")
+	execLog("ip", "link", "set", iface, "up")
+}
+
+func execLog(command string, args ...string) error {
+	cmd := exec.Command(command, args...)
 	log.Debug(cmd)
 	err := cmd.Run()
 	if err != nil {
-		log.Error(err)
+		log.Error(cmd, ": ", err)
 	}
+	return err
+}
 
-	cmd = exec.Command("iw", iface, "set", "monitor", "none")
-	log.Info("Setting monitor mode.")
-	log.Debug(cmd)
-	err = cmd.Run()
-	if err != nil {
-		log.Error(err)
+// Crude channel hopper
+func channelHopper(abort <-chan struct{}, iface string) {
+	i := 1
+	for {
+		select {
+		case <-abort:
+			return
+		default:
+		}
+		changeChannel(iface, i)
+		i++
+		if i > 13 {
+			i = 1
+		}
+		time.Sleep(time.Millisecond * 100)
 	}
+}
 
-	cmd = exec.Command("ip", "link", "set", iface, "up")
-	log.Info("Bringing ", iface, " up")
-	log.Debug(cmd)
-	err = cmd.Run()
-	if err != nil {
-		log.Error(err)
-	}
+// TODO: Replace with netlink instead of shelling out
+// Too bad there's no good netlink nl80211 libraries out there.
+func changeChannel(iface string, channel int) {
+	execLog("iw", iface, "set", "channel", strconv.Itoa(channel))
+}
+
+// NB: Only works for 2.4Ghz for channels 1-13
+func freqToChan(freq layers.RadioTapChannelFrequency) int {
+	return int((freq - 2407) / 5)
 }
