@@ -1,4 +1,4 @@
-# switch-wifi-bridge
+# switch-wifi-bridge [![Build Status](https://cloud.drone.io/api/badges/wafuu-chan/switch-wifi-bridge/status.svg)](https://cloud.drone.io/wafuu-chan/switch-wifi-bridge)
 Play Switch games with only local wireless mode, online!
 
 # Requirements
