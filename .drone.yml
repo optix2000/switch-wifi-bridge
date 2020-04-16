@@ -1,0 +1,74 @@
+---
+kind: pipeline
+type: docker
+name: linux-amd64
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+  - name: build
+    image: golang
+    commands:
+      - apt-get update && apt-get install -y libpcap-dev
+      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+  - name: release
+    image: plugins/github-release
+    settings:
+      api_key:
+        from_secret: github_token
+      files: ${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}
+    when:
+      event:
+        - tag
+
+---
+kind: pipeline
+type: docker
+name: linux-arm
+
+platform:
+  os: linux
+  arch: arm
+
+steps:
+  - name: build
+    image: golang
+    commands:
+      - apt-get update && apt-get install -y libpcap-dev
+      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+  - name: release
+    image: plugins/github-release
+    settings:
+      api_key:
+        from_secret: github_token
+      files: ${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}
+    when:
+      event:
+        - tag
+
+---
+kind: pipeline
+type: docker
+name: linux-arm64
+
+platform:
+  os: linux
+  arch: arm64
+
+steps:
+  - name: build
+    image: golang
+    commands:
+      - apt-get update && apt-get install -y libpcap-dev
+      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+  - name: release
+    image: plugins/github-release
+    settings:
+      api_key:
+        from_secret: github_token
+      files: ${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}
+    when:
+      event:
+        - tag
