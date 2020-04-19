@@ -8,11 +8,15 @@ platform:
   arch: amd64
 
 steps:
+  - name: fetch
+    image: alpine/git
+    commands:
+      - git fetch --tags
   - name: build
     image: golang
     commands:
       - apt-get update && apt-get install -y libpcap-dev
-      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+      - go build -ldflags="-s -w -X github.com/${DRONE_REPO}/cmd.Version=$(git describe --always --long --tags --dirty --broken)" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}"
   - name: release
     image: plugins/github-release
     settings:
@@ -30,6 +34,10 @@ type: docker
 name: linux-armv6
 
 steps:
+  - name: fetch
+    image: alpine/git
+    commands:
+      - git fetch --tags
   - name: build
     image: golang
     environment:
@@ -47,7 +55,7 @@ steps:
       - cd libpcap-$PCAPV
       - ./configure --host=arm-linux --with-pcap=linux && make
       - cd ..
-      - CGO_LDFLAGS="-L/$(pwd)/libpcap-$PCAPV" CGO_CFLAGS="-I/$(pwd)/libpcap-$PCAPV $CFLAGS" go build -ldflags="-s -w" -x -o "${DRONE_REPO_NAME}-$${GOOS}-$${GOARCH}" .
+      - CGO_LDFLAGS="-L/$(pwd)/libpcap-$PCAPV" CGO_CFLAGS="-I/$(pwd)/libpcap-$PCAPV $CFLAGS" go build -ldflags="-s -w -X github.com/${DRONE_REPO}/cmd.Version=$(git describe --always --long --tags --dirty --broken)" -x -o "${DRONE_REPO_NAME}-$${GOOS}-$${GOARCH}" .
   - name: release
     image: plugins/github-release
     settings:
@@ -68,11 +76,16 @@ platform:
   arch: arm64
 
 steps:
+  - name: fetch
+    image: alpine
+    commands:
+      - apk add git
+      - git fetch --tags
   - name: build
     image: golang
     commands:
       - apt-get update && apt-get install -y libpcap-dev
-      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+      - go build -ldflags="-s -w -X github.com/${DRONE_REPO}/cmd.Version=$(git describe --always --long --tags --dirty --broken)" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
   - name: release
     image: plugins/github-release
     settings:

@@ -1,10 +1,13 @@
 package cmd
 
+import "runtime"
+
+import "github.com/google/gopacket/pcap"
 import "github.com/spf13/cobra"
 import "go.uber.org/zap"
 
 // Version is version of the app
-var Version = "unknown/not set"
+var Version = "unknown"
 
 // Logging
 var log *zap.SugaredLogger
@@ -14,7 +17,7 @@ var logConfig zap.Config
 var rootCmd = &cobra.Command{
 	Use:     "switch-bridge",
 	Short:   "Wi-Fi Direct/Wi-Fi P2P bridge over IP",
-	Version: Version,
+	Version: Version + " [" + pcap.Version() + "] " + runtime.GOOS + "/" + runtime.GOARCH,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return initLogging()
 	},
