@@ -3,6 +3,7 @@ package cmd
 import "bytes"
 import "io"
 import "net"
+import "os"
 import "os/exec"
 import "strconv"
 import "time"
@@ -10,6 +11,7 @@ import "time"
 import "golang.org/x/sync/syncmap"
 import "github.com/google/gopacket"
 import "github.com/google/gopacket/pcap"
+import "github.com/google/gopacket/pcapgo"
 import "github.com/google/gopacket/layers"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
@@ -31,6 +33,7 @@ var noMon bool
 var noPromisc bool
 var noHop bool
 var altMon bool
+var dumpPackets string
 
 func init() {
 	clientCmd.Flags().StringVarP(&iface, "interface", "i", "", "Wireless interface to use for bridge. (Examples: wlan0, wlp5s0) (required)")
@@ -38,6 +41,7 @@ func init() {
 	clientCmd.Flags().BoolVarP(&noPromisc, "no-promiscuous", "P", false, "Don't put interface in promiscuous mode. This should only be used if your driver is always in promiscuous mode but doesn't support setting it.")
 	clientCmd.Flags().BoolVarP(&noHop, "no-channel-hopping", "H", false, "Don't channel hop while discovering. This should only be used if you know the channel of your device or have an alternate channel switching method.")
 	clientCmd.Flags().BoolVarP(&altMon, "alt-monitor", "m", false, "Use alternative monitor mode using 'iw set monitor' instead of libpcap.")
+	clientCmd.Flags().StringVarP(&dumpPackets, "dump-packets", "D", "", "Dump captured packets to specified file.")
 
 	clientCmd.MarkFlagRequired("interface")
 }
@@ -96,12 +100,35 @@ func client(serverAddr string) {
 		close(stopHop)
 	}
 
+	var pcapDumpWriter *pcapgo.Writer
+	if dumpPackets != "" {
+		log.Info("Writing packets to ", dumpPackets)
+		pcapDumpFile, err := os.Create(dumpPackets)
+		if err != nil {
+			log.Fatal("Error while creating pcap file: ", err)
+		}
+		defer pcapDumpFile.Close()
+		pcapDumpWriter = pcapgo.NewWriter(pcapDumpFile)
+		err = pcapDumpWriter.WriteFileHeader(uint32(handle.SnapLen()), handle.LinkType())
+		if err != nil {
+			log.Fatal("Error while writing pcap header: ", err)
+		}
+	}
+
 	// Packet reading loop
 	packetS := gopacket.NewPacketSource(handle, handle.LinkType())
 	packetS.DecodeOptions.Lazy = true
 	// TODO: Move this to a goroutine?
 	for packet := range packetS.Packets() {
-		// Sanity check
+		// Dump packets for debuggin
+		if pcapDumpWriter != nil {
+			err := pcapDumpWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
+			if err != nil {
+				log.Error("Error while dumping packet: ", err)
+			}
+		}
+
+		// Sanity checks
 		layer := packet.Layer(layers.LayerTypeRadioTap)
 		if layer == nil {
 			// TODO?: Generate radiotap headers if they aren't being captured
