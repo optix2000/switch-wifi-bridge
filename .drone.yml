@@ -24,26 +24,36 @@ steps:
         - tag
 
 ---
+# Crosscompile for ARMv6 (RasPi compatible)
 kind: pipeline
 type: docker
-name: linux-arm
-
-platform:
-  os: linux
-  arch: arm
+name: linux-armv6
 
 steps:
   - name: build
     image: golang
+    environment:
+      GOOS: linux
+      GOARCH: arm
+      GOARM: 6
+      CGO_ENABLED: 1
+
+      CC: arm-linux-gnueabi-gcc
+      CFLAGS: -march=armv6 -marm -mfpu=vfpv2 -O2
+      PCAPV: 1.9.1
     commands:
-      - apt-get update && apt-get install -y libpcap-dev
-      - go build -ldflags="-s -w" -o "${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}" .
+      - apt-get update && apt-get install -y gcc-arm-linux-gnueabi byacc flex
+      - curl --silent --show-error --location --retry 3 http://www.tcpdump.org/release/libpcap-$PCAPV.tar.gz | tar -xzf -
+      - cd libpcap-$PCAPV
+      - ./configure --host=arm-linux --with-pcap=linux && make
+      - cd ..
+      - CGO_LDFLAGS="-L/$(pwd)/libpcap-$PCAPV" CGO_CFLAGS="-I/$(pwd)/libpcap-$PCAPV $CFLAGS" go build -ldflags="-s -w" -x -o "${DRONE_REPO_NAME}-$${GOOS}-$${GOARCH}" .
   - name: release
     image: plugins/github-release
     settings:
       api_key:
         from_secret: github_token
-      files: ${DRONE_REPO_NAME}-${DRONE_STAGE_OS}-${DRONE_STAGE_ARCH}
+      files: ${DRONE_REPO_NAME}-*
     when:
       event:
         - tag
