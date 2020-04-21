@@ -87,7 +87,6 @@ func handleClient(conn net.Conn) {
 			}
 			log.Error(err)
 		} else { // Protocol unmarshal success
-			log.Debug(message)
 			switch message.Type {
 			case protocol.TypeError:
 				self.handleError(message)
