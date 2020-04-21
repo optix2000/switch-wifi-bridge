@@ -48,6 +48,7 @@ func init() {
 
 // TODO: Add reconnection
 // TODO: Anonymize MAC
+// TODO: Refactor variables so things have better interfaces
 func client(serverAddr string) {
 	if altMon {
 		altMonitor(iface)
@@ -164,10 +165,22 @@ func client(serverAddr string) {
 			}
 
 			// Look for packets in response to broadcast
-			log.Debug(dot11.Address1.String())
 			_, ok = switchMACs.Load(dot11.Address1.String())
 			if ok {
-				registerSwitch(dot11)
+				// Blindly forward any acks as you can't tell where it's from
+				if len(dot11.Address2) != 0 {
+					if !registerSwitch(dot11) {
+						// Pin channel to where switch was detected
+						// NB: Assumptions made here that any other switches will join the first one
+						if !noHop {
+							log.Info("Locking channel to ", freqToChan(rtap.ChannelFrequency))
+							stopHop <- struct{}{}
+							close(stopHop)
+							changeChannel(iface, freqToChan(rtap.ChannelFrequency))
+							noHop = true
+						}
+					}
+				}
 				forwardPacket(send, packet)
 				continue
 			}
@@ -181,13 +194,15 @@ func client(serverAddr string) {
 					log.Debug("Found Vendor specific Action")
 					// Check for Nintendo OUI
 					if bytes.Compare(action.Contents[1:4], []byte("\x00\x22\xaa")) == 0 {
-						if registerSwitch(dot11) {
+						if !registerSwitch(dot11) {
 							// Pin channel to where switch was detected
 							// NB: Assumptions made here that any other switches will join the first one
 							if !noHop {
+								log.Info("Locking channel to ", freqToChan(rtap.ChannelFrequency))
 								stopHop <- struct{}{}
 								close(stopHop)
 								changeChannel(iface, freqToChan(rtap.ChannelFrequency))
+								noHop = true
 							}
 						}
 						forwardPacket(send, packet)
@@ -229,9 +244,20 @@ func handleConnection(conn net.Conn, handle *pcap.Handle) chan<- []byte {
 					break
 				}
 				log.Error("Error deserializing msgpack: ", err)
-			} else {
-				log.Debug(message)
-				handle.WritePacketData(message.Packet)
+			} else { // Protocol unmarshal success
+				switch message.Type {
+				case protocol.TypeError:
+					log.Error("Server returned error: ", message.Error)
+				case protocol.TypePacket:
+					// TODO: Double check this is non-blocking
+					handle.WritePacketData(message.Packet)
+				case protocol.TypeRegister:
+					handleRegister(message)
+				default:
+					log.Error("Invalid protocol type: ", message.Type)
+					log.Debug(message)
+
+				}
 			}
 		}
 		// Fatal since we don't try to reconnect
@@ -239,6 +265,39 @@ func handleConnection(conn net.Conn, handle *pcap.Handle) chan<- []byte {
 	}(conn, handle)
 
 	return channel
+}
+
+func handleRegister(message *protocol.Protocol) {
+	log.Debug("Received registration packet")
+	remoteMACs := make(map[string]bool)
+	for _, mac := range message.Registration {
+		remoteMACs[mac] = true
+	}
+
+	// Remote list is canonical.
+	switchMACs.Range(
+		func(key, val interface{}) bool {
+			mac := key.(string)
+			_, ok := remoteMACs[mac]
+			if !ok {
+				local := val.(bool)
+				// Don't delete locally found MACs
+				if !local {
+					log.Debug("De-registering remote Switch ", mac)
+					globalMACList.Delete(mac)
+				}
+			}
+			return true
+		},
+	)
+
+	for _, mac := range message.Registration {
+		_, ok := switchMACs.Load(mac)
+		if !ok {
+			log.Debug("Registering remote Switch ", mac)
+			switchMACs.Store(mac, false)
+		}
+	}
 }
 
 func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
