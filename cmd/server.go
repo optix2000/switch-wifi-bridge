@@ -4,15 +4,17 @@ import "net"
 import "io"
 
 import "golang.org/x/sync/syncmap"
-import "github.com/vmihailenco/msgpack/v4"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 
 // Client keeps track of different clients
 type Client struct {
-	Conn net.Conn
-	Send chan []byte
+	Conn    net.Conn
+	MACList map[string]bool
+	Send    chan []byte
 }
+
+var globalMACList = syncmap.Map{}
 
 var clients = syncmap.Map{}
 
@@ -86,25 +88,97 @@ func handleClient(conn net.Conn) {
 			log.Error(err)
 		} else { // Protocol unmarshal success
 			log.Debug(message)
-			// Broadcast to all clients
-			clients.Range(
-				func(key, val interface{}) bool {
-					client := key.(*Client)
-					// Don't send back your own packets
-					if client == self {
-						return true
-					}
-					// Remarshal unmarshalled data prevent garbage from being sent downstream
-					mpack, err := msgpack.Marshal(message)
-					if err != nil {
-						log.Error(err)
-					} else {
-						client.Send <- mpack
-					}
-					return true
-				},
-			)
+			switch message.Type {
+			case protocol.TypeError:
+				self.handleError(message)
+			case protocol.TypePacket:
+				self.handlePacket(message)
+			case protocol.TypeRegister:
+				self.handleRegister(message)
+			default:
+				log.Error("Invalid protocol type: ", message.Type)
+				log.Debug(message)
+			}
 		}
 	}
 	log.Info("Connection lost from", conn.RemoteAddr())
+}
+
+func (self *Client) handlePacket(message *protocol.Protocol) {
+	// Broadcast to all clients
+	mpack, err := protocol.MarshalPacket(message.Packet)
+	if err != nil {
+		log.Error(err)
+	}
+	self.broadcastMessage(mpack)
+}
+
+func (self *Client) handleError(message *protocol.Protocol) {
+	log.Error("Error received from " + self.Conn.RemoteAddr().String() + ": " + message.Error)
+}
+
+func (self *Client) handleRegister(message *protocol.Protocol) {
+	// Naive way of doing set differences
+	remoteMACs := make(map[string]bool)
+	for _, mac := range message.Registration {
+		remoteMACs[mac] = true
+	}
+
+	// Remote list is canonical.
+	for mac := range self.MACList {
+		_, ok := remoteMACs[mac]
+		if !ok {
+			delete(self.MACList, mac)
+			globalMACList.Delete(mac)
+		}
+	}
+
+	for _, mac := range message.Registration {
+		_, ok := self.MACList[mac]
+		if !ok {
+			// Sanity check for duplicate MACs across clients
+			_, exists := globalMACList.Load(mac)
+			if exists {
+				log.Warn("MAC ", mac, " from ", self.Conn.RemoteAddr().String(), " already exists from another client. Multiple clients running or something naughty is going on. Skipping.")
+				msg, err := protocol.MarshalError("MAC " + mac + " already exists on another client. Registration rejected.")
+				if err != nil {
+					log.Error(err)
+				} else {
+					self.Send <- msg
+				}
+			} else {
+				globalMACList.Store(mac, true)
+			}
+		}
+	}
+
+	// Broadcast new macList
+	macList := []string{}
+	globalMACList.Range(
+		func(key, val interface{}) bool {
+			mac := key.(string)
+			macList = append(macList, mac)
+			return true
+		},
+	)
+	msg, err := protocol.MarshalRegistration(macList)
+	if err != nil {
+		log.Error(err)
+	} else {
+		self.broadcastMessage(msg)
+	}
+}
+
+func (self *Client) broadcastMessage(mpack []byte) {
+	clients.Range(
+		func(key, val interface{}) bool {
+			client := key.(*Client)
+			// Don't send back your own packets
+			if client == self {
+				return true
+			}
+			client.Send <- mpack
+			return true
+		},
+	)
 }

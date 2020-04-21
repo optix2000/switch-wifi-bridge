@@ -11,8 +11,11 @@ import "github.com/vmihailenco/msgpack/v4"
 type Protocol struct {
 	_msgpack struct{} `msgpack:",omitempty"`
 
-	Version      int
-	Type         Type
+	// Required
+	Version int
+	Type    Type
+
+	// Fields dependent on type
 	Error        string
 	Registration []string
 	Packet       []byte
@@ -24,8 +27,10 @@ const ProtocolVersion = 1
 type Type int
 
 const (
+	// TypeInvalid reserves 0 for validity checking. Should never be used outside of error checking
+	TypeInvalid Type = iota
 	// TypeError is the packet type for errors
-	TypeError Type = iota
+	TypeError
 	// TypeRegister is the packet type for MAC registration/propagation
 	TypeRegister
 	// TypePacket is the packet type for packet forwarding
@@ -39,7 +44,27 @@ type Decoder struct {
 
 // MarshalPacket takes in raw packet data and creates a messagepack to send
 func MarshalPacket(packet []byte) ([]byte, error) {
-	message := Protocol{Version: 0, Packet: packet}
+	message := Protocol{Version: ProtocolVersion, Type: TypePacket, Packet: packet}
+	mpack, err := msgpack.Marshal(message)
+	if err != nil {
+		return nil, err
+	}
+	return mpack, nil
+}
+
+// MarshalRegistration takes in mac registration and creates a messagepack to send
+func MarshalRegistration(registration []string) ([]byte, error) {
+	message := Protocol{Version: ProtocolVersion, Type: TypeRegister, Registration: registration}
+	mpack, err := msgpack.Marshal(message)
+	if err != nil {
+		return nil, err
+	}
+	return mpack, nil
+}
+
+// MarshalError takes in an error and creates a messagepack to send
+func MarshalError(errString string) ([]byte, error) {
+	message := Protocol{Version: ProtocolVersion, Type: TypeError, Error: errString}
 	mpack, err := msgpack.Marshal(message)
 	if err != nil {
 		return nil, err
@@ -62,8 +87,27 @@ func (decoder *Decoder) Decode() (*Protocol, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if message.Version != ProtocolVersion {
 		err = errors.New("Protocol Version Mismatch: Got v" + strconv.Itoa(message.Version) + " expected v" + strconv.Itoa(ProtocolVersion))
+	}
+
+	// Sanity check everything
+	switch message.Type {
+	case TypeInvalid:
+		err = errors.New("Invalid Protocol Type")
+	case TypeError:
+		if message.Error == "" {
+			err = errors.New("Error type, but no error message received")
+		}
+	case TypePacket:
+		if len(message.Packet) == 0 {
+			err = errors.New("Packet type, but no packet received")
+		}
+	case TypeRegister:
+		if len(message.Registration) == 0 {
+			err = errors.New("Register type, but no MACs received")
+		}
 	}
 	return message, err
 }
