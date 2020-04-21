@@ -7,13 +7,14 @@ import "os/exec"
 import "strconv"
 import "time"
 
+import "golang.org/x/sync/syncmap"
 import "github.com/google/gopacket"
 import "github.com/google/gopacket/pcap"
 import "github.com/google/gopacket/layers"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 
-var switchMacs = map[string]bool{}
+var switchMacs = syncmap.Map{}
 
 var clientCmd = &cobra.Command{
 	Use:   "client [server:port]",
@@ -128,7 +129,8 @@ func client(serverAddr string) {
 		} else {
 			// Forward packets if they match whitelist
 			dot11 := layer.(*layers.Dot11)
-			if switchMacs[dot11.Address2.String()] {
+			_, ok := switchMacs.Load(dot11.Address2.String())
+			if ok {
 				// Skip detection if we forward a packet
 				forwardPacket(send, packet)
 				continue
@@ -212,9 +214,10 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 }
 
 func registerSwitch(dot11 *layers.Dot11) bool {
-	if !switchMacs[dot11.Address2.String()] {
+	_, ok := switchMacs.Load(dot11.Address2.String())
+	if !ok {
 		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
-		switchMacs[dot11.Address2.String()] = true
+		switchMacs.Store(dot11.Address2.String(), true)
 		return true
 	}
 	return false
