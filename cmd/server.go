@@ -75,6 +75,7 @@ func handleClient(conn net.Conn) {
 		for message := range send {
 			// Explicitly unbuffered to minimize latency
 			// We can make some assumptions on packet size due to 802.11 limits
+			log.Debug("Sent packet")
 			conn.Write(message)
 		}
 
@@ -113,6 +114,7 @@ func handleClient(conn net.Conn) {
 }
 
 func (self *Client) handlePacket(message *protocol.Protocol) {
+	log.Debug("Received packet from ", self.Conn.RemoteAddr().String())
 	// Broadcast to all clients
 	mpack, err := protocol.MarshalPacket(message.Packet)
 	if err != nil {
@@ -126,6 +128,7 @@ func (self *Client) handleError(message *protocol.Protocol) {
 }
 
 func (self *Client) handleRegister(message *protocol.Protocol) {
+	log.Debug("Received register from ", self.Conn.RemoteAddr().String())
 	// Naive way of doing set differences
 	remoteMACs := make(map[string]bool)
 	for _, mac := range message.Registration {
