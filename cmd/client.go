@@ -135,7 +135,17 @@ func client(serverAddr string) {
 				forwardPacket(send, packet)
 				continue
 			}
-			// Scan for Switches
+
+			// Look for packets in response to broadcast
+			log.Debug(dot11.Address1.String())
+			_, ok = switchMacs.Load(dot11.Address1.String())
+			if ok {
+				registerSwitch(dot11)
+				forwardPacket(send, packet)
+				continue
+			}
+
+			// Scan for Switch broadcasts
 			// Try looking for Switch specific Action frames
 			layer = packet.Layer(layers.LayerTypeDot11MgmtAction)
 			if layer != nil {
@@ -214,13 +224,11 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 }
 
 func registerSwitch(dot11 *layers.Dot11) bool {
-	_, ok := switchMacs.Load(dot11.Address2.String())
+	_, ok := switchMacs.LoadOrStore(dot11.Address2.String(), true)
 	if !ok {
 		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
-		switchMacs.Store(dot11.Address2.String(), true)
-		return true
 	}
-	return false
+	return ok
 }
 
 // Hack for an alternative monitor mode. Needed for some drivers as they can't set monitor mode while the interface is up.

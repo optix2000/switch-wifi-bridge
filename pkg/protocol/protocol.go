@@ -1,19 +1,36 @@
 package protocol
 
 import "bufio"
+import "errors"
 import "io"
+import "strconv"
 
 import "github.com/vmihailenco/msgpack/v4"
 
 // Protocol is a super simple client/server protocol for passing packets over messagepack
 type Protocol struct {
 	_msgpack struct{} `msgpack:",omitempty"`
-	Version  int
-	Error    string
-	Packet   []byte
-	// Reserved, not implemented
-	// Broadcast bool
+
+	Version      int
+	Type         Type
+	Error        string
+	Registration []string
+	Packet       []byte
 }
+
+// ProtocolVersion is supported protocol version of this lib
+const ProtocolVersion = 1
+
+type Type int
+
+const (
+	// TypeError is the packet type for errors
+	TypeError Type = iota
+	// TypeRegister is the packet type for MAC registration/propagation
+	TypeRegister
+	// TypePacket is the packet type for packet forwarding
+	TypePacket
+)
 
 type Decoder struct {
 	Reader  *bufio.Reader
@@ -37,7 +54,7 @@ func StreamDecoder(reader io.Reader) *Decoder {
 	return ret
 }
 
-// DecodeStream returns a channel of protocols from a reader
+// Decode returns the next decoded packet
 func (decoder *Decoder) Decode() (*Protocol, error) {
 
 	message := &Protocol{}
@@ -45,5 +62,8 @@ func (decoder *Decoder) Decode() (*Protocol, error) {
 	if err != nil {
 		return nil, err
 	}
-	return message, nil
+	if message.Version != ProtocolVersion {
+		err = errors.New("Protocol Version Mismatch: Got v" + strconv.Itoa(message.Version) + " expected v" + strconv.Itoa(ProtocolVersion))
+	}
+	return message, err
 }
