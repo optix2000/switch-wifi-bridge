@@ -33,6 +33,15 @@ var serverCmd = &cobra.Command{
 	},
 }
 
+// Flags
+var reflect bool
+
+func init() {
+	serverCmd.Flags().BoolVarP(&reflect, "reflect", "r", false, "Reflect packets back to the client that sent them. Should only use for testing purposes as this will duplicate packets on all clients.")
+
+	serverCmd.Flags().MarkHidden("reflect")
+}
+
 func server(listenAddr string) {
 	// TODO: Support passwords for simple privacy
 	// TODO: Support user limit
@@ -173,7 +182,7 @@ func (self *Client) broadcastMessage(mpack []byte) {
 		func(key, val interface{}) bool {
 			client := key.(*Client)
 			// Don't send back your own packets
-			if client == self {
+			if client == self && !reflect {
 				return true
 			}
 			client.Send <- mpack
