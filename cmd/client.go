@@ -16,7 +16,7 @@ import "github.com/google/gopacket/layers"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 
-var switchMacs = syncmap.Map{}
+var switchMACs = syncmap.Map{}
 
 var clientCmd = &cobra.Command{
 	Use:   "client [server:port]",
@@ -156,7 +156,7 @@ func client(serverAddr string) {
 		} else {
 			// Forward packets if they match whitelist
 			dot11 := layer.(*layers.Dot11)
-			_, ok := switchMacs.Load(dot11.Address2.String())
+			_, ok := switchMACs.Load(dot11.Address2.String())
 			if ok {
 				// Skip detection if we forward a packet
 				forwardPacket(send, packet)
@@ -165,7 +165,7 @@ func client(serverAddr string) {
 
 			// Look for packets in response to broadcast
 			log.Debug(dot11.Address1.String())
-			_, ok = switchMacs.Load(dot11.Address1.String())
+			_, ok = switchMACs.Load(dot11.Address1.String())
 			if ok {
 				registerSwitch(dot11)
 				forwardPacket(send, packet)
@@ -251,7 +251,7 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 }
 
 func registerSwitch(dot11 *layers.Dot11) bool {
-	_, ok := switchMacs.LoadOrStore(dot11.Address2.String(), true)
+	_, ok := switchMACs.LoadOrStore(dot11.Address2.String(), true)
 	if !ok {
 		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
 	}
