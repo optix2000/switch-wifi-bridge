@@ -27,6 +27,9 @@ var clientCmd = &cobra.Command{
 	},
 }
 
+// TODO: Refactor this. Probably into some sort of connection struct
+var send chan<- []byte
+
 // Flags
 var iface string
 var noMon bool
@@ -91,7 +94,7 @@ func client(serverAddr string) {
 		log.Fatal(err)
 	}
 	// Start network goroutines
-	send := handleConnection(conn, handle)
+	send = handleConnection(conn, handle)
 
 	// Start channel hopping
 	stopHop := make(chan struct{})
@@ -314,6 +317,26 @@ func registerSwitch(dot11 *layers.Dot11) bool {
 	_, ok := switchMACs.LoadOrStore(dot11.Address2.String(), true)
 	if !ok {
 		log.Info("Found Switch at ", dot11.Address2, ". Forwarding packets")
+
+		// Send updated list to server
+		var registrationlist []string
+		switchMACs.Range(
+			func(key, val interface{}) bool {
+				v := val.(bool)
+				if v {
+					k := key.(string)
+					registrationlist = append(registrationlist, k)
+				}
+				return true
+			},
+		)
+
+		message, err := protocol.MarshalRegistration(registrationlist)
+		if err != nil {
+			log.Error(err)
+		}
+		// TODO: fixme
+		send <- message
 	}
 	return ok
 }
