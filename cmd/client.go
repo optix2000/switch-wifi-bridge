@@ -254,7 +254,10 @@ func handleConnection(conn net.Conn, handle *pcap.Handle) chan<- []byte {
 				case protocol.TypePacket:
 					log.Debug("Injecting packet")
 					// TODO: Double check this is non-blocking
-					handle.WritePacketData(message.Packet)
+					err := handle.WritePacketData(message.Packet)
+					if err != nil {
+						log.Error("Error while injecting packet: ", err)
+					}
 				case protocol.TypeRegister:
 					handleRegister(message)
 				default:
