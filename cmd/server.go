@@ -75,7 +75,7 @@ func handleClient(conn net.Conn) {
 		for message := range send {
 			// Explicitly unbuffered to minimize latency
 			// We can make some assumptions on packet size due to 802.11 limits
-			log.Debug("Sent packet")
+			log.Debug("Sent packet to ", conn.RemoteAddr())
 			conn.Write(message)
 		}
 
@@ -189,7 +189,7 @@ func (self *Client) broadcastMessage(mpack []byte) {
 			if client == self && !reflect {
 				return true
 			}
-			log.Debug("Packet forwarded to ", self.Conn.RemoteAddr())
+			log.Debug("Packet forwarded to ", client.Conn.RemoteAddr())
 			client.Send <- mpack
 			return true
 		},
