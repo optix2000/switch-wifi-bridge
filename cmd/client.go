@@ -54,50 +54,14 @@ func init() {
 // TODO: Refactor variables so things have better interfaces
 // TODO: Prevent probe spamming/brute forcing
 func client(serverAddr string) {
-	if altMon {
-		altMonitor(iface)
-	}
-
-	inactivePcap, err := pcap.NewInactiveHandle(iface)
-	if err != nil {
-		log.Fatal("Could not attach to interface: ", err)
-	}
-
-	if noMon {
-		log.Info("Skipping monitor mode")
-	} else {
-		err = inactivePcap.SetRFMon(true)
-		if err != nil {
-			log.Error("Could not enter monitor mode: ", err)
-		}
-	}
-
-	if noPromisc {
-		log.Info("Skipping promiscuous mode")
-	} else {
-		inactivePcap.SetPromisc(true)
-		if err != nil {
-			log.Error("Could not enter promiscuous mode: ", err, ". Some packets may not be captured.")
-		}
-	}
-	inactivePcap.SetTimeout(pcap.BlockForever)
-
-	handle, err := inactivePcap.Activate()
-	if err != nil {
-		log.Fatal("Could not activate pcap: ", err)
-	}
-	log.Info("Pcap started.")
-
+	handle := initClient()
 	defer handle.Close()
 
-	conn, err := net.Dial("tcp", serverAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
 	// Start network goroutines
-	send = handleConnection(conn, handle)
+	send = initConnection(serverAddr, handle)
 
 	// Start channel hopping
+	// TODO: Probably a nicer way of cancelling this
 	stopHop := make(chan struct{})
 	if !noHop {
 		go channelHopper(stopHop, iface)
@@ -223,8 +187,50 @@ func client(serverAddr string) {
 	}
 }
 
+func initClient() *pcap.Handle {
+	if altMon {
+		altMonitor(iface)
+	}
+
+	inactivePcap, err := pcap.NewInactiveHandle(iface)
+	if err != nil {
+		log.Fatal("Could not attach to interface: ", err)
+	}
+
+	if noMon {
+		log.Info("Skipping monitor mode")
+	} else {
+		err = inactivePcap.SetRFMon(true)
+		if err != nil {
+			log.Error("Could not enter monitor mode: ", err)
+		}
+	}
+
+	if noPromisc {
+		log.Info("Skipping promiscuous mode")
+	} else {
+		inactivePcap.SetPromisc(true)
+		if err != nil {
+			log.Error("Could not enter promiscuous mode: ", err, ". Some packets may not be captured.")
+		}
+	}
+	inactivePcap.SetTimeout(pcap.BlockForever)
+
+	handle, err := inactivePcap.Activate()
+	if err != nil {
+		log.Fatal("Could not activate pcap: ", err)
+	}
+	log.Info("Pcap started.")
+
+	return handle
+}
+
 // Network goroutine handling connections
-func handleConnection(conn net.Conn, handle *pcap.Handle) chan<- []byte {
+func initConnection(serverAddr string, handle *pcap.Handle) chan<- []byte {
+	conn, err := net.Dial("tcp", serverAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
 	channel := make(chan []byte, 1024)
 
 	go func(conn net.Conn, handle *pcap.Handle) {
