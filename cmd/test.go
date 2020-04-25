@@ -80,16 +80,9 @@ func test() {
 	for packet := range packetS.Packets() {
 		log.Info(packet)
 		// Append orig
-		packets = append(packets, packet.Data())
-
-		// See what packets look like when reserialized
-		buf := gopacket.NewSerializeBuffer()
-		opts := gopacket.SerializeOptions{}
-		err := gopacket.SerializePacket(buf, opts, packet)
-		if err != nil {
-			log.Error(err)
-		}
-		packets = append(packets, buf.Bytes())
+		packetData := packet.Data()
+		packets = append(packets, packetData)
+		packets = append(packets, packetData[:len(packetData)-4])
 	}
 	shandle.Close()
 	go func() {
