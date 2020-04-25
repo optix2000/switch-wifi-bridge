@@ -110,6 +110,7 @@ func handleClient(conn net.Conn) {
 			}
 		}
 	}
+	// TODO: Deregister MACs from disconnected clients
 	log.Info("Connection lost from", conn.RemoteAddr())
 }
 
@@ -188,6 +189,7 @@ func (self *Client) broadcastMessage(mpack []byte) {
 			if client == self && !reflect {
 				return true
 			}
+			log.Debug("Packet forwarded to ", self.Conn.RemoteAddr())
 			client.Send <- mpack
 			return true
 		},
