@@ -1,8 +1,10 @@
 package cmd
 
 import "runtime"
+import "strconv"
 
 import "github.com/google/gopacket/pcap"
+import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 import "github.com/spf13/cobra"
 import "go.uber.org/zap"
 
@@ -17,7 +19,7 @@ var logConfig zap.Config
 var rootCmd = &cobra.Command{
 	Use:     "switch-bridge",
 	Short:   "Wi-Fi Direct/Wi-Fi P2P bridge over IP",
-	Version: Version + " [" + pcap.Version() + "] " + runtime.GOOS + "/" + runtime.GOARCH,
+	Version: Version + " [" + pcap.Version() + "] [Protocol version " + strconv.Itoa(protocol.ProtocolVersion) + "] " + runtime.GOOS + "/" + runtime.GOARCH,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return initLogging()
 	},
