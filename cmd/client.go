@@ -30,6 +30,7 @@ var clientCmd = &cobra.Command{
 
 // TODO: Refactor this. Probably into some sort of connection struct
 var send chan<- []byte
+var inject chan<- []byte
 
 // Flags
 var iface string
@@ -281,6 +282,21 @@ func initConnection(serverAddr string, handle *pcap.Handle) chan<- []byte {
 	return channel
 }
 
+func initInjector(handle *pcap.Handle) chan<- []byte {
+	channel := make(chan []byte, 1024)
+
+	go func(handle *pcap.Handle, packets <-chan []byte) {
+		for packetData := range packets {
+			err := handle.WritePacketData(packetData)
+			if err != nil {
+				log.Error("Error while injecting packet: ", err)
+			}
+		}
+	}(handle, channel)
+
+	return channel
+}
+
 func handleRegister(message *protocol.Protocol) {
 	log.Debug("Received registration packet")
 	remoteMACs := make(map[string]bool)
@@ -358,11 +374,8 @@ func injectPacket(handle *pcap.Handle, packetData []byte) {
 		}
 	}
 
-	// TODO: Double check this is non-blocking
-	err := handle.WritePacketData(packetData)
-	if err != nil {
-		log.Error("Error while injecting packet: ", err)
-	}
+	// TODO: Fixme
+	inject <- packetData
 }
 
 func registerSwitch(dot11 *layers.Dot11) bool {
