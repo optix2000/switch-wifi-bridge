@@ -52,6 +52,7 @@ func init() {
 // TODO: Add reconnection
 // TODO: Anonymize MAC
 // TODO: Refactor variables so things have better interfaces
+// TODO: Prevent probe spamming/brute forcing
 func client(serverAddr string) {
 	if altMon {
 		altMonitor(iface)
