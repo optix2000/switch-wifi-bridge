@@ -13,6 +13,7 @@ import "github.com/google/gopacket"
 import "github.com/google/gopacket/pcap"
 import "github.com/google/gopacket/pcapgo"
 import "github.com/google/gopacket/layers"
+import "github.com/safchain/ethtool"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
 
@@ -37,6 +38,9 @@ var noPromisc bool
 var noHop bool
 var altMon bool
 var dumpPackets string
+
+// Driver compat flags
+var isMAC80211 bool
 
 func init() {
 	clientCmd.Flags().StringVarP(&iface, "interface", "i", "", "Wireless interface to use for bridge. (Examples: wlan0, wlp5s0) (required)")
@@ -260,11 +264,7 @@ func initConnection(serverAddr string, handle *pcap.Handle) chan<- []byte {
 					log.Error("Server returned error: ", message.Error)
 				case protocol.TypePacket:
 					log.Debug("Injecting packet")
-					// TODO: Double check this is non-blocking
-					err := handle.WritePacketData(message.Packet)
-					if err != nil {
-						log.Error("Error while injecting packet: ", err)
-					}
+					injectPacket(handle, message.Packet)
 				case protocol.TypeRegister:
 					handleRegister(message)
 				default:
@@ -321,6 +321,48 @@ func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 	}
 	log.Debug("Forwarding packet: ", packet)
 	send <- mpack
+}
+
+// TODO: Make more generic
+// Have "DB" feature, mapping driver + version -> injection, mac80211 support
+func detectIface(iface string) {
+	ethHandle, err := ethtool.NewEthtool()
+	if err != nil {
+		log.Error(err)
+	}
+	defer ethHandle.Close()
+
+	driver, err := ethHandle.DriverName(iface)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Info(iface, " is using ", driver)
+	if driver == "ath9k" {
+		log.Debug("mac80211 driver")
+		isMAC80211 = true
+	}
+}
+
+func injectPacket(handle *pcap.Handle, packetData []byte) {
+	// Do compat
+
+	// Strip FCS for older nl80211/cfg80211 drivers
+	// mac80211 will strip it for us. Older drivers will not
+	if !isMAC80211 {
+		packet := gopacket.NewPacket(packetData, layers.LayerTypeRadioTap, gopacket.Lazy)
+		layer := packet.Layer(layers.LayerTypeRadioTap)
+		radiotap := layer.(*layers.RadioTap)
+
+		if radiotap.Flags.FCS() {
+			packetData = packetData[:len(packetData)-4]
+		}
+	}
+
+	// TODO: Double check this is non-blocking
+	err := handle.WritePacketData(packetData)
+	if err != nil {
+		log.Error("Error while injecting packet: ", err)
+	}
 }
 
 func registerSwitch(dot11 *layers.Dot11) bool {
