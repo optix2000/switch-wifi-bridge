@@ -24,6 +24,7 @@ type Protocol struct {
 // ProtocolVersion is supported protocol version of this lib
 const ProtocolVersion = 1
 
+// Type is an enum for packet types
 type Type int
 
 const (
@@ -37,6 +38,7 @@ const (
 	TypePacket
 )
 
+// Decoder is a msgpack decoder for Protocol
 type Decoder struct {
 	Reader  *bufio.Reader
 	Decoder *msgpack.Decoder
@@ -72,6 +74,7 @@ func MarshalError(errString string) ([]byte, error) {
 	return mpack, nil
 }
 
+// StreamDecoder returns a decoder from a stream (io.Reader)
 func StreamDecoder(reader io.Reader) *Decoder {
 	ret := &Decoder{}
 	ret.Reader = bufio.NewReader(reader)
