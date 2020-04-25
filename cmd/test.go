@@ -35,6 +35,9 @@ func test() {
 
 	changeChannel(iface, channel)
 
+	// Cleanup unecessary stuff.
+	// Add timer to check for performance
+	//
 	inactivePcap, err := pcap.NewInactiveHandle(iface)
 	if err != nil {
 		log.Fatal("Could not attach to interface: ", err)
@@ -57,7 +60,7 @@ func test() {
 			log.Error("Could not enter promiscuous mode: ", err, ". Some packets may not be captured.")
 		}
 	}
-	inactivePcap.SetTimeout(pcap.BlockForever)
+	inactivePcap.SetImmediateMode(true)
 
 	handle, err := inactivePcap.Activate()
 	if err != nil {
@@ -74,9 +77,10 @@ func test() {
 
 	// Packet reading loop
 	packetS := gopacket.NewPacketSource(shandle, shandle.LinkType())
-	packetS.DecodeOptions.Lazy = true
+	//packetS.DecodeOptions.Lazy = true
 	// TODO: Move this to a goroutine?
 	var packets [][]byte
+	start := time.Now()
 	for packet := range packetS.Packets() {
 		log.Info(packet)
 		// Append orig
@@ -84,6 +88,7 @@ func test() {
 		packets = append(packets, packetData)
 		packets = append(packets, packetData[:len(packetData)-4])
 	}
+	log.Info("parse time", time.Since(start))
 	shandle.Close()
 	go func() {
 		for {
@@ -91,10 +96,12 @@ func test() {
 			log.Debug("Injecting packets")
 			for _, packet := range packets {
 				log.Debug(hex.Dump(packet))
+				start := time.Now()
 				err := handle.WritePacketData(packet)
 				if err != nil {
 					log.Error(err)
 				}
+				log.Info("injection time", time.Since(start))
 			}
 		}
 	}()
