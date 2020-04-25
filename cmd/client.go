@@ -62,6 +62,9 @@ func client(serverAddr string) {
 	handle := initClient()
 	defer handle.Close()
 
+	// Start injection goroutine
+	inject = initInjector(handle)
+
 	// Start network goroutines
 	send = initConnection(serverAddr, handle)
 
