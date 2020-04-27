@@ -16,6 +16,7 @@ import "github.com/google/gopacket/layers"
 import "github.com/safchain/ethtool"
 import "github.com/spf13/cobra"
 import "github.com/wafuu-chan/switch-wifi-bridge/pkg/protocol"
+import "github.com/wafuu-chan/switch-wifi-bridge/pkg/wifiutils"
 
 var switchMACs = syncmap.Map{}
 
@@ -57,7 +58,9 @@ func init() {
 // TODO: Add reconnection
 // TODO: Anonymize MAC
 // TODO: Refactor variables so things have better interfaces
+// Server can have types for starting goroutines for network related things
 // TODO: Prevent probe spamming/brute forcing
+// TODO: Add some timed debug prints for packets sent/recieved to reduce spam
 func client(serverAddr string) {
 	handle := initClient()
 	defer handle.Close()
@@ -108,13 +111,18 @@ func client(serverAddr string) {
 		// Sanity checks
 		layer := packet.Layer(layers.LayerTypeRadioTap)
 		if layer == nil {
-			// TODO?: Generate radiotap headers if they aren't being captured
 			// Should be easy unless Switch changes PHY modes
 			log.Error("RadioTap header not found. This likely means your wifi card does not support monitor mode.")
 			log.Debug("Packet: ", packet)
 			continue
 		}
 		rtap := layer.(*layers.RadioTap)
+		// Naively trust the RT header for speed
+		// TODO: Check FCS forreal using dot11
+		if rtap.Flags.BadFCS() {
+			log.Debug("Found corrupt packet. Discarding.")
+			continue
+		}
 		layer = packet.Layer(layers.LayerTypeDot11)
 		if layer == nil {
 			if packet.Metadata().Truncated {
@@ -131,21 +139,28 @@ func client(serverAddr string) {
 			log.Debug("Packet: ", packet)
 			continue
 		} else {
+			// TODO:
+			// Need to implement normal acks. Can try to ignore/fail add block ack requests to stay with normal acks. Might not work with 802.11n since it's supposed to support it in the standard.
+			// For speed we can try to implement block acks after it switches to n mode, and rts/cts
+
 			// Forward packets if they match whitelist
 			dot11 := layer.(*layers.Dot11)
 			_, ok := switchMACs.Load(dot11.Address2.String())
 			if ok {
-				// Skip detection if we forward a packet
+				// Ack received packet so we don't get retries
+				inject <- wifiutils.FastAck(dot11.Address2, rtap.ChannelFrequency)
 				forwardPacket(send, packet)
+				// Skip detection if we forward a packet
 				continue
 			}
 
 			// Look for packets in response to broadcast
 			_, ok = switchMACs.Load(dot11.Address1.String())
 			if ok {
-				// Blindly forward any acks as you can't tell where it's from
+				// Drop any acks since we'll be sending our own
 				if len(dot11.Address2) != 0 {
 					if !registerSwitch(dot11) {
+						inject <- wifiutils.FastAck(dot11.Address2, rtap.ChannelFrequency)
 						// Pin channel to where switch was detected
 						// NB: Assumptions made here that any other switches will join the first one
 						if !noHop {
@@ -156,9 +171,9 @@ func client(serverAddr string) {
 							noHop = true
 						}
 					}
+					forwardPacket(send, packet)
+					continue
 				}
-				forwardPacket(send, packet)
-				continue
 			}
 
 			// Scan for Switch broadcasts
@@ -222,7 +237,8 @@ func initClient() *pcap.Handle {
 			log.Error("Could not enter promiscuous mode: ", err, ". Some packets may not be captured.")
 		}
 	}
-	inactivePcap.SetTimeout(pcap.BlockForever)
+	// 802.11 is latency sensitive. Would rather lose packets than get them late
+	inactivePcap.SetImmediateMode(true)
 
 	handle, err := inactivePcap.Activate()
 	if err != nil {
@@ -333,12 +349,12 @@ func handleRegister(message *protocol.Protocol) {
 	}
 }
 
+// TODO: Refactor to use struct for static paramenters
 func forwardPacket(send chan<- []byte, packet gopacket.Packet) {
 	mpack, err := protocol.MarshalPacket(packet.Data())
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Debug("Forwarding packet: ", packet)
 	send <- mpack
 }
 
