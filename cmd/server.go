@@ -66,8 +66,9 @@ func server(listenAddr string) {
 func handleClient(conn net.Conn) {
 	log.Info("New connection from ", conn.RemoteAddr())
 	self := &Client{
-		Conn: conn,
-		Send: make(chan []byte, 1024),
+		Conn:    conn,
+		MACList: make(map[string]bool),
+		Send:    make(chan []byte, 1024),
 	}
 
 	// async writer
@@ -116,7 +117,7 @@ func handleClient(conn net.Conn) {
 			}
 		}
 	}
-	log.Info("Connection lost from", conn.RemoteAddr())
+	log.Info("Connection lost from ", conn.RemoteAddr())
 	self.deregisterClient()
 }
 
@@ -146,17 +147,19 @@ func (self *Client) handleRegister(message *protocol.Protocol) {
 	for mac := range self.MACList {
 		_, ok := remoteMACs[mac]
 		if !ok {
+			log.Debug("Deregistering mac ", mac)
 			delete(self.MACList, mac)
 			globalMACList.Delete(mac)
 		}
 	}
 
 	for _, mac := range message.Registration {
-		_, ok := self.MACList[mac]
-		if !ok {
-			// Sanity check for duplicate MACs across clients
-			_, exists := globalMACList.Load(mac)
-			if exists {
+		// Sanity check for duplicate MACs across clients
+		_, exists := globalMACList.Load(mac)
+		if exists {
+			// If it's not our mac, it's someone elses
+			_, ok := self.MACList[mac]
+			if !ok {
 				log.Warn("MAC ", mac, " from ", self.Conn.RemoteAddr().String(), " already exists from another client. Multiple clients running or something naughty is going on. Skipping.")
 				msg, err := protocol.MarshalError("MAC " + mac + " already exists on another client. Registration rejected.")
 				if err != nil {
@@ -164,17 +167,20 @@ func (self *Client) handleRegister(message *protocol.Protocol) {
 				} else {
 					self.Send <- msg
 				}
-			} else {
-				globalMACList.Store(mac, true)
 			}
+		} else { // All good, add the mac
+			log.Debug("Registering mac ", mac)
+			self.MACList[mac] = true
+			globalMACList.Store(mac, true)
 		}
 	}
 	self.broadcastRegister()
 }
 
 func (self *Client) deregisterClient() {
-	log.Debug("Deregistering client ", self.Conn.RemoteAddr, " with MACs: ", self.MACList)
+	log.Debug("Deregistering client ", self.Conn.RemoteAddr(), " with MACs: ", self.MACList)
 	for mac := range self.MACList {
+		log.Debug("Deregistering mac ", mac)
 		globalMACList.Delete(mac)
 	}
 	self.broadcastRegister()
