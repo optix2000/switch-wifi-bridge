@@ -76,7 +76,10 @@ func handleClient(conn net.Conn) {
 			// Explicitly unbuffered to minimize latency
 			// We can make some assumptions on packet size due to 802.11 limits
 			log.Debug("Sent packet to ", conn.RemoteAddr())
-			conn.Write(message)
+			_, err := conn.Write(message)
+			if err != nil {
+				log.Error(err)
+			}
 		}
 
 	}(conn, self.Send)
@@ -113,8 +116,8 @@ func handleClient(conn net.Conn) {
 			}
 		}
 	}
-	// TODO: Deregister MACs from disconnected clients
 	log.Info("Connection lost from", conn.RemoteAddr())
+	self.deregisterClient()
 }
 
 func (self *Client) handlePacket(message *protocol.Protocol) {
@@ -165,6 +168,13 @@ func (self *Client) handleRegister(message *protocol.Protocol) {
 				globalMACList.Store(mac, true)
 			}
 		}
+	}
+	self.broadcastRegister()
+}
+
+func (self *Client) deregisterClient() {
+	for mac := range self.MACList {
+		globalMACList.Delete(mac)
 	}
 	self.broadcastRegister()
 }
