@@ -89,6 +89,9 @@ func handleClient(conn net.Conn) {
 
 	decoder := protocol.StreamDecoder(conn)
 
+	// Seed client with maclist
+	self.broadcastRegister()
+
 	for {
 		message, err := decoder.Decode()
 		if err != nil {
@@ -163,7 +166,10 @@ func (self *Client) handleRegister(message *protocol.Protocol) {
 			}
 		}
 	}
+	self.broadcastRegister()
+}
 
+func (self *Client) broadcastRegister() {
 	// Broadcast new macList
 	macList := []string{}
 	globalMACList.Range(
