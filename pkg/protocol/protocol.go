@@ -108,9 +108,7 @@ func (decoder *Decoder) Decode() (*Protocol, error) {
 			err = errors.New("Packet type, but no packet received")
 		}
 	case TypeRegister:
-		if len(message.Registration) == 0 {
-			err = errors.New("Register type, but no MACs received")
-		}
+		// Nothing to do here, yet
 	}
 	return message, err
 }

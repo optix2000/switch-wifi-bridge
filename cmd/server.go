@@ -173,6 +173,7 @@ func (self *Client) handleRegister(message *protocol.Protocol) {
 }
 
 func (self *Client) deregisterClient() {
+	log.Debug("Deregistering client ", self.Conn.RemoteAddr, " with MACs: ", self.MACList)
 	for mac := range self.MACList {
 		globalMACList.Delete(mac)
 	}
@@ -189,6 +190,7 @@ func (self *Client) broadcastRegister() {
 			return true
 		},
 	)
+	log.Debug("Broadcasting maclist ", macList)
 	msg, err := protocol.MarshalRegistration(macList)
 	if err != nil {
 		log.Error(err)
